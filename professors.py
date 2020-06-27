@@ -27,8 +27,12 @@ def create_driver(headless=True, implicit_wait=2):
 def main():
     # Assumes that school is UC Berkeley
     main_url = "https://www.ratemyprofessors.com/search.jsp?queryBy=schoolId&schoolName=University+of+California+Berkeley&schoolID=1072&queryoption=TEACHER&sort=alphabetical"
-    driver = create_driver(headless=True)
+    driver = create_driver(headless=False)
     try:
+        # Set cookie for specific department
+        driver.get("https://www.ratemyprofessors.com/robots.txt")
+        driver.add_cookie({"name": "department", "value": "Computer Science", "path": "/", })
+
         driver.get(main_url)
 
         # Click cookie button
@@ -36,14 +40,12 @@ def main():
         driver.execute_script("arguments[0].click();", button)
 
         # Click load more button
-        """
         try:
             while True:
                 button = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.CSS_SELECTOR, ".progressbtnwrap > .content")))
                 driver.execute_script("arguments[0].click();", button)
         except:
             pass
-        """
 
         # Get professor info
         soup = bs(driver.page_source, "html.parser")
@@ -51,13 +53,13 @@ def main():
         professors = []
         for professor_li in professors_lis:
             url = 'https://www.ratemyprofessors.com' + professor_li.find_all('a', {'href': re.compile(r'/ShowRatings[^"]+?')})[0].attrs['href'].split("&showMyProfs")[0]
-            name = re.compile("(?<!^)\\s+(?=\\d)(?!.\\s)").split(professor_li.find_all('span', {'class': 'name'})[0].text)[0]
-            lastName, firstName = name.split(", ")
-            # professors.append({'first_name': firstName, 'last_name': lastName, 'url': url})
-            professors.append([firstName, lastName, url])
+            name = re.compile("\\d").split(professor_li.find_all('span', {'class': 'name'})[0].text, 1)[0]
+            lastName, firstName = [name.strip() for name in name.split(", ")]
+            # professors.append({'last_name': lastName, 'first_name': firstName, 'url': url})
+            professors.append([lastName, firstName, url])
 
         # Write to csv
-        header = ['first_name', 'last_name', 'url']
+        header = ['last_name', 'first_name', 'url']
         with open('professors.csv', 'wt') as f:
             csv_writer = csv.writer(f)
             csv_writer.writerow(header)
