@@ -38,7 +38,7 @@ class Professor:
         return [self.id, self.last_name, self.first_name, self.department, self.url]
 
     def __repr__(self):
-        return str(self.last_name + ". " + self.first_name)
+        return str(self.last_name + ", " + self.first_name)
 
 class Review:
     """Review"""
@@ -79,7 +79,7 @@ def create_driver(headless: bool=True, implicit_wait: int=2) -> webdriver:
     return driver
 
 def average_grade(grades: List[str]) -> float:
-    """given a list of grades as numbers (i.e. A is a 4) returns the average grade as a letter.
+    """Given a list of grades as numbers (i.e. A is a 4) returns the average grade as a letter.
     This function rounds down.
     average_grade([4.3,2.3,4,3.7,3.3]), where the mean is 3.52, rounds up to an A-
     average_grade([4,3,3,4,4,2.7]), where the mean is 3.449, rounds down to a b+"""
@@ -89,7 +89,7 @@ def average_grade(grades: List[str]) -> float:
             return GRADING_SCALE[grade]
         
 def grade_to_number(letter: str) -> float:
-
+    """Converts a letter grade to a float"""
     if letter == "A+": #this is not really right but it's fine, there's no difference between the two
         letter = "A"
     return GRADING_SCALE_REVERSED[letter]
@@ -111,14 +111,13 @@ def avg(grades: List[str]):
             glist.append(grade_to_number(grade))
     return average_grade(glist) if glist else 0 #if there were no grades 
 
-def get_professors(main_url: str ="https://www.ratemyprofessors.com/search.jsp?queryBy=schoolId&schoolName=University+of+California+Berkeley&schoolID=1072&queryoption=TEACHER&sort=alphabetical", 
+def get_professors(main_url: str = "https://www.ratemyprofessors.com/search.jsp?queryBy=schoolId&schoolName=University+of+California+Berkeley&schoolID=1072&queryoption=TEACHER&sort=alphabetical", 
                     department_cookies: List[str] = ["Computer Science", "Electrical Engineering"]) -> List[Professor]:
     """
     Returns a list of professors in certain department(s)
     
     NOTE: Assumes UC Berkeley and EECS departments
     """
-    # Assumes that school is UC Berkeley
     driver = create_driver(headless=True)
     professor_id = 0
     professors = []
@@ -152,9 +151,7 @@ def get_professors(main_url: str ="https://www.ratemyprofessors.com/search.jsp?q
                 url = 'https://www.ratemyprofessors.com' + professor_li.find_all('a', {'href': re.compile(r'/ShowRatings[^"]+?')})[0].attrs['href'].split("&showMyProfs")[0]
                 name = re.compile("\\d").split(professor_li.find_all('span', {'class': 'name'})[0].text, 1)[0]
                 last_name, first_name = [name.strip() for name in name.split(", ")]
-                # professors.append({'id': professor_id, 'last_name': last_name, 'first_name': first_name, 'department': cookie, 'url': url})
                 professors.append(Professor(last_name, first_name, cookie, url))
-                # professors.append([professor_id, last_name, first_name, cookie, url])
                 professor_id += 1
     except Exception as e:
         driver.quit()
