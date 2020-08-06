@@ -42,16 +42,14 @@ class Professor:
 
 class Review:
     """Review"""
-    curr_ids = {}
-    csv_header = ['professor_id', 'id', 'content']
+    curr_id = 0
+    csv_header = ['id', 'professor_id', 'content']
 
     def __init__(self, professor_id: int, content: str, sentiment: dict, attrs: dict):
         assert(all(key in sentiment for key in ['pos', 'compound', 'neg', 'neu']))
 
-        if not professor_id in Review.curr_ids:
-            Review.curr_ids[professor_id] = 0
-        self.id = Review.curr_ids[professor_id]
-        Review.curr_ids[professor_id] += 1
+        self.id = Review.curr_id
+        Review.curr_id += 1
 
         self.professor_id = professor_id
         self.content = content
@@ -59,7 +57,7 @@ class Review:
         self.attrs = attrs
 
     def to_csv_row(self):
-        return [self.professor_id, self.id, self.content]
+        return [self.id, self.professor_id, self.content]
 
     def __repr__(self):
         return str(self.content)
@@ -206,6 +204,7 @@ def get_reviews(professor: Professor) -> List[Review]:
                 for meta_item_type in meta_items_types:
                     if meta_item_type in item.text.lower():
                         attrs[meta_items_types[meta_item_type]] = ' '.join(item.text.split()[len(meta_item_type.split()):]).lower()
+                        break
             reviews.append(Review(professor.id, content, analyzer.polarity_scores(content), attrs))
     return reviews
 
