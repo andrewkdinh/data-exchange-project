@@ -33,12 +33,64 @@ class Professor:
         self.first_name = first_name
         self.department = department
         self.url = url
+        self.reviews = []
 
-    def to_csv_row(self):
+    def __repr__(self) -> str:
+        return str(self.last_name + ", " + self.first_name)
+
+    def to_csv_row(self) -> List:
         return [self.id, self.last_name, self.first_name, self.department, self.url]
 
-    def __repr__(self):
-        return str(self.last_name + ", " + self.first_name)
+    def scrape_reviews(self):
+        """Scrapes reviews for a professor and adds it as an instance variable"""
+        driver = create_driver(headless=True)
+        try:
+            driver.get(self.url)
+            # Click cookie button
+            button = WebDriverWait(driver, 3).until(EC.element_to_be_clickable((By.CLASS_NAME, "CCPAModal__StyledCloseButton-sc-10x9kq-2")))
+            driver.execute_script("arguments[0].click();", button)
+            #Click load more button
+            try:
+                while True:
+                    button = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.CLASS_NAME, "Buttons__BlackButton-sc-19xdot-1")))
+                    driver.execute_script("arguments[0].click();", button)
+            except:
+                pass
+            professor_soup = bs(driver.page_source, "html.parser")
+        except Exception as e:
+            driver.quit()
+            raise(e)
+        driver.quit()
+
+        analyzer = SentimentIntensityAnalyzer()
+        reviews = []
+        for rating in professor_soup.select("ul#ratingsList > li"):
+            content = rating.find_all('div', {'class': re.compile(r'Comments__StyledComments-.+-\d')})
+            if len(content) != 0: # Sometimes, they're ad div's
+                attrs = {}
+                content = content[0].text
+                rating_values = rating.find_all('div', {'class': re.compile(r'RatingValues__RatingValue-sc-.+-\d')})
+                attrs['quality'] = float(rating_values[0].text)
+                attrs['difficulty'] = float(rating_values[1].text)
+                attrs['class'] = rating.find('div', {'class': re.compile(r'RatingHeader__StyledClass-sc-.+-\d')}).text
+                likes_dislikes = rating.find_all('div', {'class': re.compile(r'RatingFooter__HelpTotal-.+-\d')})
+                attrs['likes'] = int(likes_dislikes[0].text)
+                attrs['dislikes'] = int(likes_dislikes[1].text)
+                attrs['emotion'] = rating.find('div', {'class': re.compile(r'EmotionLabel__StyledEmotionLabel-sc-.+-\d')}).text[1:]
+                date_str = re.sub(r'(st|nd|rd|th)', '', rating.find('div', {'class': re.compile(r'TimeStamp__StyledTimeStamp-sc-.+-\d')}).text)
+                attrs['date'] = datetime.strptime(date_str, '%b %d, %Y')
+                rating_tags = rating.find_all('span', {'class': re.compile(r'Tag-.+-\d')})
+                attrs['rating_tags'] = [rating_tag.text for rating_tag in rating_tags]
+
+                meta_items = rating.find_all('div', {'class': re.compile(r'MetaItem__StyledMetaItem-.+-\d')})
+                meta_items_types = {'for credit': 'for_credit', 'attendance': 'attendance', 'would take again': 'would_take_again', 'grade': 'grade', 'textbook': 'textbook'}
+                for item in meta_items:
+                    for meta_item_type in meta_items_types:
+                        if meta_item_type in item.text.lower():
+                            attrs[meta_items_types[meta_item_type]] = ' '.join(item.text.split()[len(meta_item_type.split()):]).lower()
+                            break
+                reviews.append(Review(self.id, content, analyzer.polarity_scores(content), attrs))
+        self.reviews = reviews
 
 class Review:
     """Review"""
@@ -56,11 +108,11 @@ class Review:
         self.sentiment = sentiment
         self.attrs = attrs
 
-    def to_csv_row(self):
-        return [self.id, self.professor_id, self.content]
-
-    def __repr__(self):
+    def __repr__(self) -> str:
         return str(self.content)
+
+    def to_csv_row(self) -> List:
+        return [self.id, self.professor_id, self.content]
 
 def create_driver(headless: bool=True, implicit_wait: int=2) -> webdriver:
     """Creates and returns a Selenium driver object"""
@@ -109,10 +161,10 @@ def avg(grades: List[str]):
             glist.append(grade_to_number(grade))
     return average_grade(glist) if glist else 0 #if there were no grades 
 
-def get_professors(main_url: str = "https://www.ratemyprofessors.com/search.jsp?queryBy=schoolId&schoolName=University+of+California+Berkeley&schoolID=1072&queryoption=TEACHER&sort=alphabetical", 
+def scrape_professors(main_url: str = "https://www.ratemyprofessors.com/search.jsp?queryBy=schoolId&schoolName=University+of+California+Berkeley&schoolID=1072&queryoption=TEACHER&sort=alphabetical", 
                     department_cookies: List[str] = ["Computer Science", "Electrical Engineering"]) -> List[Professor]:
     """
-    Returns a list of professors in certain department(s)
+    Scrapes a directory of professors and returns a list of professors in certain department(s)
     
     NOTE: Assumes UC Berkeley and EECS departments
     """
@@ -157,56 +209,24 @@ def get_professors(main_url: str = "https://www.ratemyprofessors.com/search.jsp?
     driver.quit()
     return professors
 
-def get_reviews(professor: Professor) -> List[Review]:
-    """Returns a list of reviews for a certain professor"""
-    driver = create_driver(headless=True)
-    try:
-        driver.get(professor.url)
-        # Click cookie button
-        button = WebDriverWait(driver, 3).until(EC.element_to_be_clickable((By.CLASS_NAME, "CCPAModal__StyledCloseButton-sc-10x9kq-2")))
-        driver.execute_script("arguments[0].click();", button)
-        #Click load more button
-        try:
-            while True:
-                button = WebDriverWait(driver, 2).until(EC.element_to_be_clickable((By.CLASS_NAME, "Buttons__BlackButton-sc-19xdot-1")))
-                driver.execute_script("arguments[0].click();", button)
-        except:
-            pass
-        professor_soup = bs(driver.page_source, "html.parser")
-    except Exception as e:
-        driver.quit()
-        raise(e)
-    driver.quit()
+def write_professors(professors: List[Professor], file_name: str = "professors.csv") -> None:
+    """Takes a list of professors and writes it to a CSV file"""
+    professor_rows = [professor.to_csv_row() for professor in professors]
+    with open(file_name, 'w') as f:
+        csv_writer = csv.writer(f)
+        csv_writer.writerow(Professor.csv_header)
+        csv_writer.writerows(professor_rows)
 
-    analyzer = SentimentIntensityAnalyzer()
-    reviews = []
-    for rating in professor_soup.select("ul#ratingsList > li"):
-        content = rating.find_all('div', {'class': re.compile(r'Comments__StyledComments-.+-\d')})
-        if len(content) != 0: # Sometimes, they're ad div's
-            attrs = {}
-            content = content[0].text
-            rating_values = rating.find_all('div', {'class': re.compile(r'RatingValues__RatingValue-sc-.+-\d')})
-            attrs['quality'] = float(rating_values[0].text)
-            attrs['difficulty'] = float(rating_values[1].text)
-            attrs['class'] = rating.find('div', {'class': re.compile(r'RatingHeader__StyledClass-sc-.+-\d')}).text
-            likes_dislikes = rating.find_all('div', {'class': re.compile(r'RatingFooter__HelpTotal-.+-\d')})
-            attrs['likes'] = int(likes_dislikes[0].text)
-            attrs['dislikes'] = int(likes_dislikes[1].text)
-            attrs['emotion'] = rating.find('div', {'class': re.compile(r'EmotionLabel__StyledEmotionLabel-sc-.+-\d')}).text[1:]
-            date_str = re.sub(r'(st|nd|rd|th)', '', rating.find('div', {'class': re.compile(r'TimeStamp__StyledTimeStamp-sc-.+-\d')}).text)
-            attrs['date'] = datetime.strptime(date_str, '%b %d, %Y')
-            rating_tags = rating.find_all('span', {'class': re.compile(r'Tag-.+-\d')})
-            attrs['rating_tags'] = [rating_tag.text for rating_tag in rating_tags]
-
-            meta_items = rating.find_all('div', {'class': re.compile(r'MetaItem__StyledMetaItem-.+-\d')})
-            meta_items_types = {'for credit': 'for_credit', 'attendance': 'attendance', 'would take again': 'would_take_again', 'grade': 'grade', 'textbook': 'textbook'}
-            for item in meta_items:
-                for meta_item_type in meta_items_types:
-                    if meta_item_type in item.text.lower():
-                        attrs[meta_items_types[meta_item_type]] = ' '.join(item.text.split()[len(meta_item_type.split()):]).lower()
-                        break
-            reviews.append(Review(professor.id, content, analyzer.polarity_scores(content), attrs))
-    return reviews
+def write_reviews(reviews: List[List[Review]], file_name: str = "reviews.csv") -> None:
+    """Takes a list of lists of reviews and writes them all to a CSV file"""
+    review_rows = []
+    for review_list in reviews:
+        for review in review_list:
+            review_rows.append(review.to_csv_row())
+    with open(file_name, 'w') as f:
+        csv_writer = csv.writer(f)
+        csv_writer.writerow(Review.csv_header)
+        csv_writer.writerows(review_rows)
 
 def filter(reviews: List[Review], courses_wanted: List[str] = None, courses_not_wanted: List[str] = None) -> (List[Review], List[Review]):
     """Takes in a list of reviews and returns (kept_reviews, discarded_reviews)"""
@@ -218,7 +238,11 @@ def main():
     pass
 
 if __name__ == "__main__":
-    professors = get_professors()
-    reviews = get_reviews(professors[0])
+    professors = scrape_professors()
+    professors[0].scrape_reviews()
+    # Write to CSV
+    write_professors(professors)
+    write_reviews([professors[0].reviews])
     # Print example review (first review for John Denero)
+    reviews = professors[0].reviews
     pprint([reviews[0].content, reviews[0].sentiment, reviews[0].attrs])
